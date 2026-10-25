@@ -1,36 +1,58 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Secure Vault
 
-## Getting Started
+A private, localhost-only personal password manager built with Next.js, React, TypeScript, Tailwind CSS, Web Crypto, Zod, and Google Drive appDataFolder. Vault encryption and decryption happen in the browser. Google Drive receives encrypted vault envelopes only.
 
-First, run the development server:
+> **Private testing only.** This project has not received an independent security audit. Do not expose it using tunnels, public interfaces, or port forwarding. Read [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) before storing real credentials.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Current features
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- Create, unlock, manually lock, and inactivity-lock a vault.
+- Optional per-browser quick unlock with a PIN, pattern, app password, or device passkey/biometric unlock where WebAuthn PRF is supported. The master password and recovery key remain available.
+- AES-256-GCM authenticated vault encryption; random DEK; PBKDF2-HMAC-SHA-256 key-encryption key; one-time independent recovery key.
+- Add/edit/view/search/delete credentials, categories, favorites, reveal/copy, and secure random password generator.
+- Encrypted local persistence, encrypted JSON export/restore, optional Google Drive appDataFolder sync.
+- Server-side Google OAuth authorization-code flow with state cookie and encrypted local token persistence.
+- Tests for crypto primitives, password generation, OAuth state, and a Playwright vault flow.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Requirements
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- Node.js 22 (verified in this workspace), npm.
+- A current browser with Web Crypto support.
+- Optional: Google Cloud project with Drive API and OAuth web client.
 
-## Learn More
+## Run locally
 
-To learn more about Next.js, take a look at the following resources:
+The project is in the `secure-vault` subfolder because the workspace directory name contains a space and is not a valid npm package name.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. In a terminal, change into `secure-vault`.
+2. Run `npm install`.
+3. For local-only use without Drive, run `npm run dev` and open `http://localhost:3000`.
+4. To enable Drive, copy `.env.example` to `.env.local`, fill the OAuth values, and generate a separate 32-byte base64 `APP_TOKEN_ENCRYPTION_KEY`. Follow [docs/GOOGLE_OAUTH_SETUP.md](docs/GOOGLE_OAUTH_SETUP.md), then restart the development server.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Commands
 
-## Deploy on Vercel
+- `npm run dev` — local development.
+- `npm run build` — optimized production build.
+- `npm start` — production server; keep bound to localhost.
+- `npm run lint` — ESLint.
+- `npm run typecheck` — strict TypeScript validation.
+- `npm run test` — Vitest unit tests.
+- `npm run test:e2e` — Playwright browser test (install a Playwright browser if needed with `npx playwright install chromium`).
+- `npm run check` — lint, typecheck, unit tests, and production build.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Crypto choices
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`argon2-browser` is currently stale (latest npm package version 1.18.0 was published five years ago), so this project uses Web Crypto PBKDF2-HMAC-SHA-256 at 600,000 iterations rather than claiming a maintained Argon2id integration. AES-GCM uses fresh random 96-bit nonces for each encryption operation. Header parameters are validated before KDF work and bound to ciphertext using additional authenticated data. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+Master password and recovery key loss means permanent data loss. See [docs/RECOVERY_AND_BACKUPS.md](docs/RECOVERY_AND_BACKUPS.md).
+
+Quick-unlock settings are stored locally as an encrypted copy of the vault key. PINs and patterns are weaker than a strong password and can be guessed offline if an attacker copies browser storage. Keep a strong master password and recovery key; device unlock depends on browser and authenticator support.
+
+## Environment variables
+
+- `GOOGLE_CLIENT_ID` — OAuth web client ID.
+- `GOOGLE_CLIENT_SECRET` — server-only OAuth secret.
+- `GOOGLE_REDIRECT_URI` — exact local callback URI, normally `http://localhost:3000/api/drive/callback`.
+- `APP_TOKEN_ENCRYPTION_KEY` — base64 encoding of a random 32-byte local token-file encryption key, separate from vault keys.
+
+Never commit `.env.local`. Token encryption does not protect against malware or an attacker controlling the same Windows account.
