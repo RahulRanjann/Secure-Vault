@@ -1,17 +1,18 @@
 # Secure Vault
 
-A private, localhost-only personal password manager built with Next.js, React, TypeScript, Tailwind CSS, Web Crypto, Zod, and Google Drive appDataFolder. Vault encryption and decryption happen in the browser. Google Drive receives encrypted vault envelopes only.
+A private password manager built with Next.js, React, TypeScript, Tailwind CSS, Web Crypto, Zod, Neon Postgres, and Google Drive appDataFolder. Google sign-in identifies each user; vault encryption and decryption happen in the browser. Neon stores account/session metadata and encrypted Google refresh tokens; each user's Google Drive receives only their encrypted vault envelope.
 
-> **Private testing only.** This project has not received an independent security audit. Do not expose it using tunnels, public interfaces, or port forwarding. Read [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) before storing real credentials.
+> **Private testing only.** This project has not received an independent security audit. Complete the production setup and security checklist before public use. Read [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) before storing real credentials.
 
 ## Current features
 
 - Create, unlock, manually lock, and inactivity-lock a vault.
 - Optional per-browser quick unlock with a PIN, pattern, app password, or device passkey/biometric unlock where WebAuthn PRF is supported. The master password and recovery key remain available.
 - AES-256-GCM authenticated vault encryption; random DEK; PBKDF2-HMAC-SHA-256 key-encryption key; one-time independent recovery key.
-- Add/edit/view/search/delete credentials, categories, favorites, reveal/copy, and secure random password generator.
+- Add/edit/view/search/delete login, phone-lock, and app-lock items; organize them with categories and favorites, reveal/copy secrets, and generate secure random passwords.
 - Encrypted local persistence, encrypted JSON export/restore, optional Google Drive appDataFolder sync.
-- Server-side Google OAuth authorization-code flow with state cookie and encrypted local token persistence.
+- Google OAuth sign-in with per-user opaque server sessions and encrypted Drive refresh tokens.
+- Per-user Google Drive appDataFolder sync; local vault and quick-unlock data are namespaced by signed-in account.
 - Tests for crypto primitives, password generation, OAuth state, and a Playwright vault flow.
 
 ## Requirements
@@ -26,17 +27,24 @@ The project is in the `secure-vault` subfolder because the workspace directory n
 
 1. In a terminal, change into `secure-vault`.
 2. Run `npm install`.
-3. For local-only use without Drive, run `npm run dev` and open `http://localhost:3000`.
-4. To enable Drive, copy `.env.example` to `.env.local`, fill the OAuth values, and generate a separate 32-byte base64 `APP_TOKEN_ENCRYPTION_KEY`. Follow [docs/GOOGLE_OAUTH_SETUP.md](docs/GOOGLE_OAUTH_SETUP.md), then restart the development server.
+3. This version requires Google sign-in, including for local use. Create a Neon database, run [database/schema.sql](database/schema.sql), copy `.env.example` to `.env.local`, fill the local OAuth/database values, and generate a separate 32-byte base64 `APP_TOKEN_ENCRYPTION_KEY`.
+4. Follow [docs/GOOGLE_OAUTH_SETUP.md](docs/GOOGLE_OAUTH_SETUP.md) to configure the local Google OAuth origin and callback, then run `npm run dev` and open `http://localhost:3000`. The development and production servers bind to `127.0.0.1` and are not intended to be exposed to your network.
+
+## Deploy to Vercel
+
+This version is designed for multiple Google accounts and per-user Google Drive sync. Follow the complete [Vercel deployment and OAuth setup](docs/GOOGLE_OAUTH_SETUP.md) before deploying. Configure Vercel environment variables, the Neon pooled connection string, Google OAuth production redirect URI, `APP_BASE_URL`, and a strong independent token-encryption key. Run `database/schema.sql` against Neon before first sign-in.
+
+Vercel hosts the application, not vault plaintext. Users must separately choose a strong vault master password; Google sign-in does not unlock or recover it. The encrypted vault is held in that user's Drive appDataFolder and locally in browser storage.
 
 ## Commands
 
 - `npm run dev` — local development.
 - `npm run build` — optimized production build.
-- `npm start` — production server; keep bound to localhost.
+- `npm start` — production server bound to `127.0.0.1` for local operation; Vercel runs its own serverless adapter.
 - `npm run lint` — ESLint.
 - `npm run typecheck` — strict TypeScript validation.
 - `npm run test` — Vitest unit tests.
+- `npm run test:neon` — verify Neon Postgres schema and perform a temporary private-bucket upload/download/delete test using `.env.local`.
 - `npm run test:e2e` — Playwright browser test (install a Playwright browser if needed with `npx playwright install chromium`).
 - `npm run check` — lint, typecheck, unit tests, and production build.
 
@@ -52,7 +60,9 @@ Quick-unlock settings are stored locally as an encrypted copy of the vault key. 
 
 - `GOOGLE_CLIENT_ID` — OAuth web client ID.
 - `GOOGLE_CLIENT_SECRET` — server-only OAuth secret.
-- `GOOGLE_REDIRECT_URI` — exact local callback URI, normally `http://localhost:3000/api/drive/callback`.
-- `APP_TOKEN_ENCRYPTION_KEY` — base64 encoding of a random 32-byte local token-file encryption key, separate from vault keys.
+- `GOOGLE_REDIRECT_URI` — exact OAuth callback URI (`${APP_BASE_URL}/api/drive/callback`).
+- `APP_BASE_URL` — exact app origin; use the canonical HTTPS Vercel domain in production.
+- `DATABASE_URL` — Neon Postgres connection string; use Neon’s pooled connection string for Vercel.
+- `APP_TOKEN_ENCRYPTION_KEY` — base64 encoding of a random 32-byte server-side Google refresh-token encryption key, separate from vault keys.
 
-Never commit `.env.local`. Token encryption does not protect against malware or an attacker controlling the same Windows account.
+Never commit `.env.local`. Token encryption does not protect against a compromised Vercel environment, database owner, browser, or user account.

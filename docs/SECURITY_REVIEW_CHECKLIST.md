@@ -9,7 +9,7 @@ This checklist is not an audit certificate. Complete it before storing real cred
 - [ ] Export an encrypted backup and test its restore in a separate browser profile.
 - [ ] Configure Google OAuth with only Drive appDataFolder scope and owner test account.
 - [ ] Keep `.env.local`, OAuth secret, and token encryption key out of Git/backups shared with the vault.
-- [ ] Confirm the server is bound to localhost only and no tunnel/port forwarding is active.
+- [ ] Confirm the server is bound to `127.0.0.1` only and no tunnel/port forwarding is active; do not override the provided bind address.
 - [ ] Use Windows account protection and full-device encryption.
 - [ ] Use a trusted browser profile without unnecessary extensions.
 - [ ] Verify encrypted localStorage and exported file do not contain credential text.

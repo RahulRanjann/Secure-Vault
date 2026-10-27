@@ -1,7 +1,12 @@
 import { z } from "zod";
 
+export const credentialTypeSchema = z.enum(["login", "phone-lock", "app-lock"]);
+export const lockMethodSchema = z.enum(["pin", "pattern"]);
+
 export const credentialSchema = z.object({
   id: z.string().uuid(),
+  type: credentialTypeSchema.default("login"),
+  lockMethod: lockMethodSchema.optional(),
   title: z.string().trim().min(1).max(120),
   url: z.string().max(2048).refine((value) => {
     if (!value) return true;
@@ -26,6 +31,8 @@ export const vaultDataSchema = z.object({
 });
 
 export type Credential = z.infer<typeof credentialSchema>;
+export type CredentialType = z.infer<typeof credentialTypeSchema>;
+export type LockMethod = z.infer<typeof lockMethodSchema>;
 export type VaultData = z.infer<typeof vaultDataSchema>;
 
 const base64RegExp = /^[A-Za-z0-9+/]+={0,2}$/;

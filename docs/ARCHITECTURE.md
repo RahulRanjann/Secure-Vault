@@ -4,7 +4,10 @@
 
 - The browser owns every decrypted credential and every vault key. The server receives only a versioned encrypted envelope during Drive sync.
 - Google OAuth authorization is a separate server-side flow. Its authorization code is exchanged server-side; access/refresh tokens never enter browser JavaScript.
-- Refresh-token JSON is encrypted with AES-256-GCM under `APP_TOKEN_ENCRYPTION_KEY` and stored in the Windows `%LOCALAPPDATA%/SecureVault/google-token.enc` location. File permissions are restricted where the OS honors them. The key is kept in the local environment, so this does not protect against malware or a compromised Windows account.
+- Google OAuth uses an authorization-code flow with state and OIDC nonce cookies. A random opaque app-session token is placed in an HTTP-only, SameSite cookie; only its SHA-256 hash and expiry are stored in Neon.
+- Google refresh tokens are encrypted with AES-256-GCM under `APP_TOKEN_ENCRYPTION_KEY` and stored per user in Neon. Access tokens are refreshed by the Google auth client and are not persisted by this app. Anyone controlling both the database and the production key can decrypt refresh tokens.
+- The server obtains the signed-in user from the session on each Drive operation and uses that user's Google refresh token. Each Drive file remains within that Google account's hidden `appDataFolder`.
+- Vault envelopes are encrypted in the browser and stored in each user's Drive and account-namespaced browser storage. Neon does not store vault envelopes or master passwords.
 - The default vault is in browser localStorage only as an encrypted envelope. This is exposed to same-origin JavaScript, so a successful XSS can still steal decrypted data while unlocked; CSP and no third-party scripts reduce but cannot eliminate that risk.
 
 ## Key hierarchy
@@ -28,8 +31,8 @@ Drive appDataFolder cannot be inspected directly from the Drive UI, is specific 
 
 ## Local security boundaries
 
-- Development should bind to localhost and never be exposed using tunnels, public interfaces, or port forwarding.
-- Mutating endpoints require matching same-origin requests and localhost Host values. OAuth uses 256-bit single-use state in a short-lived HTTP-only SameSite cookie.
+- Local development binds to `127.0.0.1`. Production deployments use the configured `APP_BASE_URL` as the canonical origin.
+- Mutating endpoints require matching same-origin requests. OAuth uses 256-bit single-use state and an OIDC nonce in short-lived HTTP-only SameSite cookies.
 - API routes impose encrypted envelope size limits, validate Zod schemas, avoid logging secrets, and mark responses no-store.
 - `src/proxy.ts` configures CSP and security headers. Development permits eval only for Next.js diagnostics; production removes it.
 - No server-side credential search exists. Search is performed against decrypted in-memory browser data.

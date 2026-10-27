@@ -1,16 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 
-export function requireLocalhost(request: NextRequest): NextResponse | null {
-  const host = request.headers.get("host")?.split(":")[0]?.toLowerCase();
-  if (host !== "localhost" && host !== "127.0.0.1") return NextResponse.json({ error: "Local access only." }, { status: 403 });
-  return null;
-}
-
 export function requireSameOrigin(request: NextRequest): NextResponse | null {
   const origin = request.headers.get("origin");
-  const host = request.headers.get("host");
-  if (!origin || !host || new URL(origin).host !== host) return NextResponse.json({ error: "Request origin rejected." }, { status: 403 });
-  return requireLocalhost(request);
+  const configuredOrigin = process.env.APP_BASE_URL;
+  if (process.env.NODE_ENV === "production" && !configuredOrigin) {
+    return NextResponse.json({ error: "Application origin is not configured." }, { status: 503 });
+  }
+  try {
+    const expectedOrigin = configuredOrigin ? new URL(configuredOrigin).origin : request.nextUrl.origin;
+    if (!origin || new URL(origin).origin !== expectedOrigin) {
+      return NextResponse.json({ error: "Request origin rejected." }, { status: 403 });
+    }
+  } catch {
+    return NextResponse.json({ error: "Request origin rejected." }, { status: 403 });
+  }
+  return null;
 }
 
 export function safeError(message: string, status = 400) {

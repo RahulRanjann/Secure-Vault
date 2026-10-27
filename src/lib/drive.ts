@@ -63,8 +63,8 @@ export async function driveResponseError(response: Response, operation: string):
   return new DriveSyncError(`Google Drive could not ${operation} (HTTP ${response.status}). Check that the Drive API is enabled and retry.`);
 }
 
-async function request(url: string, init?: RequestInit) {
-  const client = await getDriveClient();
+async function request(userId: string, url: string, init?: RequestInit) {
+  const client = await getDriveClient(userId);
   let headers: Awaited<ReturnType<typeof client.getRequestHeaders>>;
   try {
     headers = await client.getRequestHeaders();
@@ -74,29 +74,29 @@ async function request(url: string, init?: RequestInit) {
   return fetch(url, { ...init, headers: mergeDriveHeaders(headers, init?.headers) });
 }
 
-export async function findVault(): Promise<DriveFile[]> {
+export async function findVault(userId: string): Promise<DriveFile[]> {
   const query = encodeURIComponent(`name='${FILE_NAME}' and 'appDataFolder' in parents and trashed=false`);
-  const response = await request(`${API}/files?spaces=appDataFolder&q=${query}&fields=files(id,name,version,modifiedTime,md5Checksum)&pageSize=100`);
+  const response = await request(userId, `${API}/files?spaces=appDataFolder&q=${query}&fields=files(id,name,version,modifiedTime,md5Checksum)&pageSize=100`);
   if (!response.ok) throw await driveResponseError(response, "check Google Drive");
   const payload = await response.json() as { files?: DriveFile[] };
   return payload.files ?? [];
 }
 
-export async function downloadVault(fileId: string) {
-  const response = await request(`${API}/files/${encodeURIComponent(fileId)}?alt=media`);
+export async function downloadVault(userId: string, fileId: string) {
+  const response = await request(userId, `${API}/files/${encodeURIComponent(fileId)}?alt=media`);
   if (!response.ok) throw await driveResponseError(response, "download the encrypted vault");
   return { content: await response.text(), etag: response.headers.get("etag") };
 }
 
-export async function uploadVault(content: string, expectedVersion?: string) {
+export async function uploadVault(userId: string, content: string, expectedVersion?: string) {
   if (new TextEncoder().encode(content).byteLength > 1_500_000) throw new Error("Vault file is too large.");
-  const existing = await findVault();
+  const existing = await findVault(userId);
   if (existing.length > 1) throw new Error("Multiple vault files were found. Resolve duplicates before syncing.");
   if (existing.length === 0) {
     const boundary = `securevault_${randomUUID()}`;
     const metadata = JSON.stringify({ name: FILE_NAME, parents: ["appDataFolder"], mimeType: "application/json" });
     const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${content}\r\n--${boundary}--`;
-    const response = await request(`${UPLOAD_API}/files?uploadType=multipart&fields=id,name,version,modifiedTime,md5Checksum`, {
+    const response = await request(userId, `${UPLOAD_API}/files?uploadType=multipart&fields=id,name,version,modifiedTime,md5Checksum`, {
       method: "POST", headers: { "Content-Type": `multipart/related; boundary=${boundary}` }, body,
     });
     if (!response.ok) throw await driveResponseError(response, "create the encrypted vault");
@@ -104,11 +104,11 @@ export async function uploadVault(content: string, expectedVersion?: string) {
   }
   const file = existing[0];
   if (expectedVersion && expectedVersion !== file.version) throw new Error("Drive vault changed elsewhere. Download and resolve the newer version before uploading.");
-  const etag = await request(`${API}/files/${encodeURIComponent(file.id)}?fields=id,version`).then((res) => {
+  const etag = await request(userId, `${API}/files/${encodeURIComponent(file.id)}?fields=id,version`).then((res) => {
     if (!res.ok) throw driveResponseError(res, "verify the current Drive revision");
     return res.headers.get("etag");
   });
-  const response = await request(`${API}/upload/drive/v3/files/${encodeURIComponent(file.id)}?uploadType=media&fields=id,name,version,modifiedTime,md5Checksum`, {
+  const response = await request(userId, `${API}/upload/drive/v3/files/${encodeURIComponent(file.id)}?uploadType=media&fields=id,name,version,modifiedTime,md5Checksum`, {
     method: "PATCH", headers: { "Content-Type": "application/json", ...(etag ? { "If-Match": etag } : {}) }, body: content,
   });
   if (response.status === 412) throw new Error("Drive vault changed during upload. No local data was overwritten.");
@@ -116,16 +116,16 @@ export async function uploadVault(content: string, expectedVersion?: string) {
   return await response.json() as DriveFile;
 }
 
-export async function syncVault(content?: string, version?: string) {
-  const files = await findVault();
+export async function syncVault(userId: string, content?: string, version?: string) {
+  const files = await findVault(userId);
   if (files.length > 1) throw new Error("Multiple vault files were found. Resolve duplicates before syncing.");
   if (content !== undefined) {
-    const saved = await uploadVault(content, version);
-    const check = await downloadVault(saved.id);
+    const saved = await uploadVault(userId, content, version);
+    const check = await downloadVault(userId, saved.id);
     if (check.content !== content) throw new Error("Drive verification failed; the uploaded vault did not match.");
     return { action: "uploaded" as const, file: saved };
   }
   if (files.length === 0) return { action: "missing" as const };
-  const downloaded = await downloadVault(files[0].id);
+  const downloaded = await downloadVault(userId, files[0].id);
   return { action: "downloaded" as const, file: files[0], ...downloaded };
 }
